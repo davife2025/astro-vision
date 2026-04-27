@@ -1,0 +1,17 @@
+{
+  "name": "astrovision",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AstroVision — AI-Powered Multi-Modal Astrophysics Research Platform",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "dev:client": "turbo run dev --filter=@astrovision/client",
+    "dev:server": "turbo run dev --filter=@astrovision/server",
+    "build:client": "turbo run build --filter=@astrovision/client",
+    "build:server": "turbo run build --filter=@astrovision/server"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}

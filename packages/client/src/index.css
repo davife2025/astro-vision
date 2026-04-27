@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(59, 130, 246, 0.3);
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background-color: rgba(59, 130, 246, 0.4);
+    color: #fff;
+  }
+
+  body {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    background: #030712;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  /* Glass panel — the primary container style */
+  .glass {
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl;
+  }
+  .glass-subtle {
+    @apply bg-white/[0.02] backdrop-blur-md border border-white/[0.04] rounded-xl;
+  }
+  .glass-interactive {
+    @apply glass transition-all duration-300 hover:bg-white/[0.06] hover:border-white/[0.1];
+  }
+
+  /* Glow effects */
+  .glow-blue {
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.05);
+  }
+  .glow-green {
+    box-shadow: 0 0 30px rgba(34, 197, 94, 0.15), 0 0 60px rgba(34, 197, 94, 0.05);
+  }
+  .glow-purple {
+    box-shadow: 0 0 30px rgba(168, 85, 247, 0.15), 0 0 60px rgba(168, 85, 247, 0.05);
+  }
+
+  /* Star field background */
+  .star-field {
+    background-image:
+      radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.4) 0%, transparent 100%),
+      radial-gradient(1px 1px at 30% 60%, rgba(255,255,255,0.3) 0%, transparent 100%),
+      radial-gradient(1px 1px at 50% 10%, rgba(255,255,255,0.2) 0%, transparent 100%),
+      radial-gradient(1px 1px at 70% 40%, rgba(255,255,255,0.35) 0%, transparent 100%),
+      radial-gradient(1px 1px at 90% 80%, rgba(255,255,255,0.25) 0%, transparent 100%),
+      radial-gradient(1.5px 1.5px at 15% 85%, rgba(147,197,253,0.3) 0%, transparent 100%),
+      radial-gradient(1.5px 1.5px at 85% 15%, rgba(253,224,71,0.2) 0%, transparent 100%);
+  }
+
+  /* Discovery score badge variants */
+  .score-routine { @apply bg-white/10 text-white/60; }
+  .score-interesting { @apply bg-nebula-600/20 text-nebula-300; }
+  .score-notable { @apply bg-stellar-500/20 text-stellar-300; }
+  .score-significant { @apply bg-cosmic-500/20 text-cosmic-300; }
+  .score-discovery { @apply bg-aurora-500/20 text-aurora-300 animate-glow; }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-nebula-400 via-cosmic-400 to-nebula-300;
+  }
+  .text-gradient-warm {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-stellar-400 via-amber-300 to-stellar-400;
+  }
+}
