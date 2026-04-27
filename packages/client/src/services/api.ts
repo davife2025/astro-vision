@@ -42,6 +42,7 @@ export async function sendChatMessage(
 // ─── Analysis ────────────────────────────────────────────────────────────────
 export interface AnalysisCallbacks {
   onProgress?: (stage: string, data: any) => void;
+  onStageResult?: (type: string, data: any) => void;
   onResult?: (data: any) => void;
   onError?: (error: string) => void;
 }
@@ -85,6 +86,7 @@ export async function runFullAnalysis(
         try {
           const data = JSON.parse(line.slice(6));
           if (eventType === "progress") callbacks.onProgress?.(data.stage, data);
+          else if (eventType === "stage_result") callbacks.onStageResult?.(data.type, data.data);
           else if (eventType === "result") callbacks.onResult?.(data);
           else if (eventType === "error") callbacks.onError?.(data.message);
         } catch {
