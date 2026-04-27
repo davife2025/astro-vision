@@ -26,7 +26,7 @@ export interface ChatMessage {
 export interface ChatResponse {
   response: string;
   model: string;
-  usage: any;
+  tokens: number | null;
 }
 
 export async function sendChatMessage(
