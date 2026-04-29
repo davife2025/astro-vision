@@ -14,6 +14,7 @@ import { config } from "../config";
 import { triageImage, analyzeMorphology, getAnnotations, compareImages as vlmCompareImages } from "../services/vlm";
 import { compareImages, fetchImageBuffer } from "../services/imageComparison";
 import { synthesizeResults } from "../services/llm";
+import { getSupabase } from "../config/supabase";
 
 const router = Router();
 const upload = multer({
@@ -331,6 +332,53 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
         pipeline: PIPELINE_VERSION,
       },
     });
+
+    // ── Auto-save to observation ledger ───────────────────────────────
+    try {
+      const supabase = getSupabase();
+      // Upload image to storage
+      let imageUrl = null;
+      const filePath = `observations/${observationId}.jpg`;
+      const { error: uploadErr } = await supabase.storage
+        .from("observation-images")
+        .upload(filePath, imageBuffer, { contentType: mimeType, upsert: true });
+
+      if (!uploadErr) {
+        const { data: urlData } = supabase.storage
+          .from("observation-images")
+          .getPublicUrl(filePath);
+        imageUrl = urlData.publicUrl;
+      }
+
+      await supabase.from("observations").upsert([{
+        id: observationId,
+        user_id: req.body.userId || "anonymous",
+        image_url: imageUrl,
+        pipeline_version: PIPELINE_VERSION,
+        tier,
+        ra: coordinates?.ra || null,
+        dec_coord: coordinates?.dec || null,
+        field_width: coordinates?.fieldWidth || null,
+        field_height: coordinates?.fieldHeight || null,
+        orientation: coordinates?.orientation || null,
+        pixscale: coordinates?.pixscale || null,
+        morphology,
+        image_quality: imageQuality,
+        catalog_matches: catalogMatches,
+        is_uncatalogued: catalogMatches.length === 0 && coordinates != null,
+        change_detection: changeDetection,
+        visual_comparison: visualComparison,
+        archival_images: archivalImages,
+        synthesis,
+        discovery_score: discoveryScore.total,
+        discovery_tier: discoveryScore.tier,
+        discovery_score_breakdown: discoveryScore,
+        model_versions: { vlm: "Kimi-K2.5", llm: "AstroSage-8B", pipeline: PIPELINE_VERSION },
+        user_question: userQuestion,
+      }]);
+    } catch (saveErr) {
+      console.error("Auto-save failed (non-blocking):", saveErr);
+    }
 
     res.end();
   } catch (err) {

@@ -5,6 +5,7 @@ import { config, validateConfig } from "./config";
 import analysisRoutes from "./routes/analysis";
 import chatRoutes from "./routes/chat";
 import communityRoutes from "./routes/community";
+import observationsRoutes from "./routes/observations";
 import { PIPELINE_VERSION } from "@astrovision/pipeline";
 
 const app = express();
@@ -19,6 +20,7 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 app.use("/api/analysis", analysisRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/community", communityRoutes);
+app.use("/api/observations", observationsRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {
@@ -32,6 +34,9 @@ app.get("/", (_req, res) => {
       "POST /api/analysis/full     — Full discovery pipeline (SSE)",
       "POST /api/analysis/quick    — Quick VLM-only analysis",
       "POST /api/chat              — AstroSage conversation",
+      "GET  /api/observations      — List observations",
+      "GET  /api/observations/:id  — Get observation detail",
+      "POST /api/observations      — Save observation",
       "GET  /api/community/posts   — Community feed",
       "POST /api/community/posts   — Create post",
     ],

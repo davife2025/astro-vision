@@ -113,3 +113,69 @@ export async function createCommunityPost(data: {
     body: JSON.stringify(data),
   });
 }
+
+// ─── Observations ────────────────────────────────────────────────────────────
+export interface ObservationSummary {
+  id: string;
+  created_at: string;
+  pipeline_version: string;
+  tier: number;
+  ra: number | null;
+  dec_coord: number | null;
+  morphology: any | null;
+  discovery_score: number;
+  discovery_tier: string;
+  image_url: string | null;
+  user_question: string | null;
+  is_uncatalogued: boolean;
+  synthesis: any | null;
+}
+
+export interface ObservationDetail extends ObservationSummary {
+  user_id: string;
+  field_width: number | null;
+  field_height: number | null;
+  orientation: number | null;
+  pixscale: number | null;
+  image_quality: any | null;
+  catalog_matches: any[];
+  change_detection: any | null;
+  visual_comparison: any | null;
+  archival_images: any[];
+  discovery_score_breakdown: any | null;
+  model_versions: any;
+}
+
+export interface ObservationStats {
+  totalObservations: number;
+  significantDiscoveries: number;
+  uncataloguedObjects: number;
+}
+
+export async function getObservations(params?: {
+  userId?: string;
+  limit?: number;
+  offset?: number;
+  minScore?: number;
+}): Promise<{ success: boolean; observations: ObservationSummary[] }> {
+  const searchParams = new URLSearchParams();
+  if (params?.userId) searchParams.set("userId", params.userId);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  if (params?.minScore) searchParams.set("minScore", String(params.minScore));
+
+  const qs = searchParams.toString();
+  return request(`/api/observations${qs ? `?${qs}` : ""}`);
+}
+
+export async function getObservation(id: string): Promise<{ success: boolean; observation: ObservationDetail }> {
+  return request(`/api/observations/${id}`);
+}
+
+export async function getObservationStats(): Promise<{ success: boolean; stats: ObservationStats }> {
+  return request("/api/observations/stats/summary");
+}
+
+export async function deleteObservation(id: string): Promise<{ success: boolean }> {
+  return request(`/api/observations/${id}`, { method: "DELETE" });
+}
