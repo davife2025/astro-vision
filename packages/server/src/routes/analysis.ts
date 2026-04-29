@@ -1,19 +1,33 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import { v4 as uuid } from "uuid";
-import { PIPELINE_VERSION } from "@astrovision/pipeline";
-import { triageImage, analyzeMorphology, getAnnotations } from "../services/vlm";
+import {
+  PIPELINE_VERSION,
+  AstrometryService,
+  SkyViewService,
+  CatalogService,
+  computeDiscoveryScore,
+  type Coordinates,
+  type ArchivalImage,
+} from "@astrovision/pipeline";
+import { config } from "../config";
+import { triageImage, analyzeMorphology, getAnnotations, compareImages as vlmCompareImages } from "../services/vlm";
+import { compareImages, fetchImageBuffer } from "../services/imageComparison";
+import { synthesizeResults } from "../services/llm";
 
 const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+  limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     file.mimetype.startsWith("image/")
       ? cb(null, true)
       : cb(new Error("Only image files are allowed"));
   },
 });
+
+const skyview = new SkyViewService();
+const catalog = new CatalogService();
 
 /**
  * POST /api/analysis/full
@@ -27,6 +41,7 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
   const userQuestion = req.body.question || "Analyze this celestial object.";
   const observationId = uuid();
   const imageBase64 = req.file.buffer.toString("base64");
+  const imageBuffer = req.file.buffer;
   const mimeType = req.file.mimetype;
 
   // SSE headers
@@ -47,10 +62,9 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
 
     const imageQuality = await triageImage(imageBase64, mimeType);
 
-    send("progress", { stage: "triage_done", message: "Image quality assessed", progress: 15 });
+    send("progress", { stage: "triage", message: "Image quality assessed", progress: 10 });
     send("stage_result", { type: "imageQuality", data: imageQuality });
 
-    // If not astronomical, return early
     if (!imageQuality.isAstronomical) {
       send("result", {
         id: observationId,
@@ -59,42 +73,238 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
         tier: 3,
         imageQuality,
         morphology: null,
-        error: "Image does not appear to be an astronomical image. Please upload a telescope capture or astronomical photograph.",
+        error: "Image does not appear to be astronomical.",
       });
       return res.end();
     }
 
-    // ── Stage 2: Morphological Analysis ──────────────────────────────
-    send("progress", { stage: "morphology", message: "Analyzing morphological features...", progress: 20 });
+    // ── Stage 2: VLM + Astrometry in PARALLEL ────────────────────────
+    send("progress", { stage: "morphology", message: "Analyzing morphology + solving coordinates...", progress: 15 });
 
-    const morphology = await analyzeMorphology(imageBase64, mimeType);
+    // Fire both simultaneously
+    const morphologyPromise = analyzeMorphology(imageBase64, mimeType);
 
-    send("progress", { stage: "morphology_done", message: `Classified: ${morphology.classification} (${morphology.subType})`, progress: 40 });
+    let astrometryPromise: Promise<Coordinates | null>;
+    if (imageQuality.hasEnoughStarsForPlateSolving && config.astrometryApiKey) {
+      const astrometry = new AstrometryService(config.astrometryApiKey);
+      astrometryPromise = astrometry
+        .solve(imageBuffer, (attempt, max) => {
+          send("progress", {
+            stage: "plate_solving",
+            message: `Solving coordinates (attempt ${attempt}/${max})...`,
+            progress: 15 + Math.min(attempt * 2, 20),
+          });
+        })
+        .catch((err) => {
+          send("progress", {
+            stage: "plate_solving",
+            message: `Plate solving failed: ${(err as Error).message}`,
+            progress: 35,
+          });
+          return null;
+        });
+    } else {
+      astrometryPromise = Promise.resolve(null);
+      if (!config.astrometryApiKey) {
+        send("progress", { stage: "plate_solving", message: "Astrometry API key not configured — skipping", progress: 35 });
+      } else {
+        send("progress", { stage: "plate_solving", message: "Insufficient stars for plate solving — skipping", progress: 35 });
+      }
+    }
+
+    // Wait for both
+    const [morphology, coordinates] = await Promise.all([
+      morphologyPromise,
+      astrometryPromise,
+    ]);
+
+    send("progress", {
+      stage: "morphology",
+      message: `Classified: ${morphology.classification} (${morphology.subType})`,
+      progress: 40,
+    });
     send("stage_result", { type: "morphology", data: morphology });
 
-    // ── Stage 2b: Annotations (parallel-safe, non-blocking) ─────────
-    send("progress", { stage: "annotations", message: "Identifying key features...", progress: 45 });
+    if (coordinates) {
+      send("progress", {
+        stage: "plate_solving",
+        message: `Coordinates: RA ${coordinates.ra.toFixed(4)}°, Dec ${coordinates.dec.toFixed(4)}°`,
+        progress: 42,
+      });
+      send("stage_result", { type: "coordinates", data: coordinates });
+    }
 
+    // ── Stage 2b: Annotations (non-blocking) ─────────────────────────
     let annotations: any[] = [];
     try {
       annotations = await getAnnotations(imageBase64, mimeType);
+      if (annotations.length > 0) {
+        send("stage_result", { type: "annotations", data: annotations });
+      }
     } catch {
-      // Annotations are non-critical
       annotations = [];
     }
 
-    if (annotations.length > 0) {
-      send("stage_result", { type: "annotations", data: annotations });
+    // ── Stage 3: SkyView archival fetch (only if coordinates available)
+    let archivalImages: ArchivalImage[] = [];
+    let referenceImageBuffer: Buffer | null = null;
+    let diffImageBase64: string | null = null;
+    let changeDetection: any = null;
+
+    if (coordinates) {
+      send("progress", { stage: "archival_fetch", message: "Fetching archival images from SkyView...", progress: 50 });
+
+      // Get all multi-wavelength images
+      archivalImages = skyview.getArchivalImages(coordinates);
+      send("stage_result", { type: "archivalImages", data: archivalImages });
+
+      // Fetch the primary optical reference for comparison
+      const primaryRef = skyview.getPrimaryOptical(coordinates);
+      send("progress", { stage: "archival_fetch", message: `Fetching DSS2 reference image...`, progress: 55 });
+
+      try {
+        referenceImageBuffer = await fetchImageBuffer(primaryRef.url);
+        send("progress", { stage: "archival_fetch", message: "Reference image retrieved", progress: 60 });
+
+        // Convert reference to base64 for frontend display
+        const refBase64 = referenceImageBuffer.toString("base64");
+        send("stage_result", {
+          type: "referenceImage",
+          data: {
+            base64: refBase64,
+            survey: primaryRef.survey,
+            wavelength: primaryRef.wavelength,
+          },
+        });
+
+        // ── Stage 4: Change detection ──────────────────────────────
+        send("progress", { stage: "change_detection", message: "Running change detection...", progress: 65 });
+
+        const comparison = await compareImages(imageBuffer, referenceImageBuffer);
+        changeDetection = comparison.detection;
+        diffImageBase64 = comparison.diffImageBase64;
+
+        send("progress", {
+          stage: "change_detection",
+          message: changeDetection.description,
+          progress: 75,
+        });
+        send("stage_result", { type: "changeDetection", data: changeDetection });
+        send("stage_result", { type: "diffImage", data: { base64: diffImageBase64 } });
+
+      } catch (err) {
+        send("progress", {
+          stage: "archival_fetch",
+          message: `Could not fetch reference: ${(err as Error).message}`,
+          progress: 65,
+        });
+      }
+    } else {
+      send("progress", { stage: "archival_fetch", message: "No coordinates — skipping archival comparison", progress: 65 });
     }
 
-    // ── Stages 3–5: Astrometry + SkyView + Catalog (Session 3+) ─────
-    send("progress", { stage: "plate_solving", message: "Coordinate solving (ready in Session 3)...", progress: 50 });
+    // ── Determine initial tier ─────────────────────────────────────
+    let tier: 1 | 2 | 3;
+    if (coordinates && changeDetection) tier = 1;
+    else if (coordinates || changeDetection) tier = 2;
+    else tier = 3;
 
-    // TODO: Session 3 — Astrometry parallel with VLM
-    // TODO: Session 3 — SkyView archival fetch
-    // TODO: Session 4 — Visual comparison
-    // TODO: Session 4 — AstroSage synthesis
-    // TODO: Session 5 — Catalog cross-reference + scoring
+    // ── Stage 5: VLM Visual Comparison (parallel with catalog) ──────
+    let visualComparison: any = null;
+    let catalogMatches: any[] = [];
+
+    const parallelTasks: Promise<void>[] = [];
+
+    // VLM visual comparison (only if we have a reference)
+    if (coordinates && referenceImageBuffer) {
+      parallelTasks.push(
+        (async () => {
+          send("progress", { stage: "change_detection", message: "AI visual comparison of epochs...", progress: 76 });
+          try {
+            const refBase64 = referenceImageBuffer!.toString("base64");
+            visualComparison = await vlmCompareImages(
+              imageBase64,
+              refBase64,
+              mimeType,
+              coordinates!.ra,
+              coordinates!.dec
+            );
+            send("stage_result", { type: "visualComparison", data: visualComparison });
+          } catch (err) {
+            console.error("VLM comparison error:", err);
+          }
+        })()
+      );
+    }
+
+    // Catalog cross-reference (only if we have coordinates)
+    if (coordinates) {
+      parallelTasks.push(
+        (async () => {
+          send("progress", { stage: "catalog_query", message: "Querying SIMBAD and NED catalogs...", progress: 78 });
+          try {
+            catalogMatches = await catalog.crossReference(coordinates!, 1.0);
+            send("progress", {
+              stage: "catalog_query",
+              message: catalogMatches.length > 0
+                ? `Found ${catalogMatches.length} catalog match(es)`
+                : "No catalog matches — potentially uncatalogued",
+              progress: 82,
+            });
+            send("stage_result", { type: "catalogMatches", data: catalogMatches });
+          } catch (err) {
+            console.error("Catalog query error:", err);
+          }
+        })()
+      );
+    }
+
+    await Promise.all(parallelTasks);
+
+    // ── Stage 6: AstroSage Synthesis ────────────────────────────────
+    send("progress", { stage: "synthesis", message: "AstroSage synthesizing findings...", progress: 85 });
+
+    let synthesis: any = null;
+    try {
+      synthesis = await synthesizeResults({
+        morphologyJson: JSON.stringify(morphology),
+        ra: coordinates?.ra || null,
+        dec: coordinates?.dec || null,
+        simbadResults: JSON.stringify(catalogMatches.filter((m: any) => m.source === "SIMBAD")),
+        nedResults: JSON.stringify(catalogMatches.filter((m: any) => m.source === "NED")),
+        changeScore: changeDetection?.changeScore || null,
+        snr: changeDetection?.signalToNoise || null,
+        isSignificant: changeDetection?.isSignificant || null,
+        visualComparisonJson: visualComparison ? JSON.stringify(visualComparison) : "",
+        userQuestion,
+      });
+      send("progress", { stage: "synthesis", message: "Synthesis complete", progress: 90 });
+      send("stage_result", { type: "synthesis", data: synthesis });
+    } catch (err) {
+      console.error("Synthesis error:", err);
+      send("progress", { stage: "synthesis", message: `Synthesis failed: ${(err as Error).message}`, progress: 90 });
+    }
+
+    // ── Stage 7: Discovery Scoring ──────────────────────────────────
+    send("progress", { stage: "scoring", message: "Computing discovery score...", progress: 92 });
+
+    const discoveryScore = computeDiscoveryScore({
+      morphology,
+      catalogMatches,
+      changeDetection: changeDetection || null,
+      aiDiscoveryPotential: synthesis?.discoveryPotential || "none",
+    });
+
+    send("progress", {
+      stage: "scoring",
+      message: `Discovery score: ${discoveryScore.total}/100 (${discoveryScore.tier})`,
+      progress: 98,
+    });
+    send("stage_result", { type: "discoveryScore", data: discoveryScore });
+
+    // Update tier based on full pipeline
+    if (coordinates && changeDetection && synthesis) tier = 1;
+    else if (coordinates || synthesis) tier = 2;
 
     send("progress", { stage: "complete", message: "Analysis complete", progress: 100 });
 
@@ -103,17 +313,18 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
       id: observationId,
       timestamp: new Date().toISOString(),
       pipelineVersion: PIPELINE_VERSION,
-      tier: 3,
+      tier,
       imageQuality,
       morphology,
       annotations,
-      coordinates: null,
-      catalogMatches: [],
-      archivalImages: [],
-      changeDetection: null,
-      visualComparison: null,
-      synthesis: null,
-      discoveryScore: null,
+      coordinates,
+      catalogMatches,
+      archivalImages,
+      changeDetection,
+      diffImageBase64,
+      visualComparison,
+      synthesis,
+      discoveryScore,
       modelVersions: {
         vlm: "Kimi-K2.5",
         llm: "AstroSage-8B",

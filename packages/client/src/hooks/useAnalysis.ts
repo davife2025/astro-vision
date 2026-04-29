@@ -17,10 +17,13 @@ export interface AnalysisState {
   coordinates: any | null;
   catalogMatches: any[];
   archivalImages: any[];
+  referenceImage: { base64: string; survey: string; wavelength: string } | null;
+  diffImage: { base64: string } | null;
   changeDetection: any | null;
   visualComparison: any | null;
   synthesis: any | null;
   discoveryScore: any | null;
+  tier: 1 | 2 | 3;
 
   error: string | null;
 }
@@ -39,10 +42,13 @@ const INITIAL_STATE: AnalysisState = {
   coordinates: null,
   catalogMatches: [],
   archivalImages: [],
+  referenceImage: null,
+  diffImage: null,
   changeDetection: null,
   visualComparison: null,
   synthesis: null,
   discoveryScore: null,
+  tier: 3,
   error: null,
 };
 
@@ -88,10 +94,13 @@ export function useAnalysis() {
         coordinates: null,
         catalogMatches: [],
         archivalImages: [],
+        referenceImage: null,
+        diffImage: null,
         changeDetection: null,
         visualComparison: null,
         synthesis: null,
         discoveryScore: null,
+        tier: 3,
       }));
 
       try {
@@ -113,6 +122,9 @@ export function useAnalysis() {
               if (type === "annotations") updates.annotations = data;
               if (type === "coordinates") updates.coordinates = data;
               if (type === "catalogMatches") updates.catalogMatches = data;
+              if (type === "archivalImages") updates.archivalImages = data;
+              if (type === "referenceImage") updates.referenceImage = data;
+              if (type === "diffImage") updates.diffImage = data;
               if (type === "changeDetection") updates.changeDetection = data;
               if (type === "visualComparison") updates.visualComparison = data;
               if (type === "synthesis") updates.synthesis = data;
@@ -128,6 +140,7 @@ export function useAnalysis() {
               progress: 100,
               currentStage: "complete",
               stageMessage: "Analysis complete",
+              tier: data.tier || prev.tier,
               imageQuality: data.imageQuality || prev.imageQuality,
               morphology: data.morphology || prev.morphology,
               annotations: data.annotations || prev.annotations,
