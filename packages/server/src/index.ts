@@ -6,6 +6,7 @@ import analysisRoutes from "./routes/analysis";
 import chatRoutes from "./routes/chat";
 import communityRoutes from "./routes/community";
 import observationsRoutes from "./routes/observations";
+import exploreRoutes from "./routes/explore";
 import { PIPELINE_VERSION } from "@astrovision/pipeline";
 
 const app = express();
@@ -21,6 +22,7 @@ app.use("/api/analysis", analysisRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/community", communityRoutes);
 app.use("/api/observations", observationsRoutes);
+app.use("/api/explore", exploreRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {

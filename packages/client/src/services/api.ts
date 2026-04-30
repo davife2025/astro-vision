@@ -179,3 +179,48 @@ export async function getObservationStats(): Promise<{ success: boolean; stats: 
 export async function deleteObservation(id: string): Promise<{ success: boolean }> {
   return request(`/api/observations/${id}`, { method: "DELETE" });
 }
+
+// ─── Explore ─────────────────────────────────────────────────────────────────
+export interface GalaxyFeedItem {
+  id: string;
+  ra: number;
+  dec: number;
+  imageUrl: string;
+  classification: string | null;
+  petrosianRadius: number | null;
+  redshift: number | null;
+  magnitude: number | null;
+  source: string;
+}
+
+export async function getExploreGalaxies(params?: {
+  source?: string;
+  limit?: number;
+  offset?: number;
+  type?: string;
+}): Promise<{ success: boolean; items: GalaxyFeedItem[] }> {
+  const sp = new URLSearchParams();
+  if (params?.source) sp.set("source", params.source);
+  if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.offset) sp.set("offset", String(params.offset));
+  if (params?.type) sp.set("type", params.type);
+  const qs = sp.toString();
+  return request(`/api/explore/feed${qs ? `?${qs}` : ""}`);
+}
+
+export async function getRandomGalaxies(): Promise<{
+  success: boolean;
+  region: string;
+  items: GalaxyFeedItem[];
+}> {
+  return request("/api/explore/random");
+}
+
+export async function searchExplore(query: string): Promise<{
+  success: boolean;
+  items: GalaxyFeedItem[];
+  resolved?: { name: string; ra: number; dec: number };
+  message?: string;
+}> {
+  return request(`/api/explore/search?q=${encodeURIComponent(query)}`);
+}
