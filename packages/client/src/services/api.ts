@@ -98,8 +98,9 @@ export async function runFullAnalysis(
 }
 
 // ─── Community ───────────────────────────────────────────────────────────────
-export async function getCommunityPosts() {
-  return request<{ success: boolean; posts: any[] }>("/api/community/posts");
+export async function getCommunityPosts(filter?: "all" | "discoveries") {
+  const qs = filter && filter !== "all" ? `?filter=${filter}` : "";
+  return request<{ success: boolean; posts: any[] }>(`/api/community/posts${qs}`);
 }
 
 export async function createCommunityPost(data: {
@@ -112,6 +113,51 @@ export async function createCommunityPost(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function likePost(postId: string, userId: string) {
+  return request(`/api/community/posts/${postId}/like`, {
+    method: "POST",
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export async function getComments(postId: string) {
+  return request<{ success: boolean; comments: any[] }>(`/api/community/posts/${postId}/comments`);
+}
+
+export async function addComment(postId: string, data: {
+  userId: string;
+  author: string;
+  text: string;
+  parentId?: string;
+}) {
+  return request(`/api/community/posts/${postId}/comments`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function submitVerification(data: {
+  observationId: string;
+  userId: string;
+  confidence: number;
+  notes?: string;
+}) {
+  return request("/api/community/verify", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getVerifications(observationId: string) {
+  return request<{ success: boolean; verifications: any[]; count: number; avgConfidence: number | null }>(
+    `/api/community/verify/${observationId}`
+  );
+}
+
+export async function getVerificationQueue() {
+  return request<{ success: boolean; items: any[] }>("/api/community/queue");
 }
 
 // ─── Observations ────────────────────────────────────────────────────────────
