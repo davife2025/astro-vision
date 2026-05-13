@@ -6,7 +6,7 @@ import {
   type VisualComparison,
 } from "@astrovision/pipeline";
 
-const HF_INFERENCE_URL = "https://router.huggingface.co/novita/v3/openai/chat/completions";
+const HF_INFERENCE_URL = "https://router.huggingface.co/novita/v1/chat/completions";
 
 interface VLMResponse {
   raw: string;

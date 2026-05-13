@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
+// Load .env from monorepo root (dev) — silently skips in production where env vars are set directly
 dotenv.config({ path: "../../.env" });
+dotenv.config({ path: ".env" });
 
 export const config = {
   port: parseInt(process.env.PORT || "3001", 10),
@@ -22,7 +24,7 @@ export const config = {
 
   // Models
   models: {
-    vlm: "moonshotai/Kimi-K2.5:novita",
+    vlm: "moonshotai/Kimi-K2-6",
     llm: "AstroMLab/AstroSage-8B",
     llmLarge: "AstroMLab/AstroSage-LLaMA-3.1-70B",
   },
