@@ -24,7 +24,7 @@ export const config = {
 
   // Models
   models: {
-    vlm: "moonshotai/Kimi-K2-6",
+    vlm: "Qwen/Qwen3.5-35B-A3B:novita",
     llm: "AstroMLab/AstroSage-8B",
     llmLarge: "AstroMLab/AstroSage-LLaMA-3.1-70B",
   },

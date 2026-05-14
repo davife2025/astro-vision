@@ -1,17 +1,6 @@
-import { X, RotateCcw, Loader2 } from "lucide-react";
+import { X, RotateCcw, Loader2, Sparkles, Crosshair, AlertTriangle, CheckCircle2, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import type { AnalysisState } from "@/hooks/useAnalysis";
-import { ImageViewer } from "./ImageViewer";
-import { TripletViewer } from "./TripletViewer";
-import { ImageQualityCard } from "./ImageQualityCard";
-import { MorphologyCard } from "./MorphologyCard";
-import { CoordinatesCard } from "./CoordinatesCard";
-import { ChangeDetectionCard } from "./ChangeDetectionCard";
-import { CatalogCard } from "./CatalogCard";
-import { SynthesisCard } from "./SynthesisCard";
-import { DiscoveryScoreCard } from "./DiscoveryScoreCard";
-import { MultiWavelengthViewer } from "./MultiWavelengthViewer";
-import { PipelineProgress, type PipelineStage } from "./PipelineProgress";
 
 interface AnalysisPanelProps {
   state: AnalysisState;
@@ -19,132 +8,202 @@ interface AnalysisPanelProps {
   onRetry: () => void;
 }
 
-function buildStages(state: AnalysisState): PipelineStage[] {
-  const stageOrder = [
-    { key: "triage", label: "Image quality assessment" },
-    { key: "morphology", label: "Morphological analysis" },
-    { key: "plate_solving", label: "Coordinate solving" },
-    { key: "archival_fetch", label: "Archival image retrieval" },
-    { key: "change_detection", label: "Change detection" },
-    { key: "catalog_query", label: "Catalog cross-reference" },
-    { key: "synthesis", label: "AstroSage synthesis" },
-    { key: "scoring", label: "Discovery scoring" },
-  ];
-
-  const currentIdx = stageOrder.findIndex((x) => x.key === state.currentStage);
-
-  return stageOrder.map((s, thisIdx) => {
-    let status: PipelineStage["status"] = "pending";
-    if (state.status === "error" && state.currentStage === s.key) {
-      status = "error";
-    } else if (state.status === "done" || thisIdx < currentIdx) {
-      status = "done";
-    } else if (thisIdx === currentIdx && state.status === "running") {
-      status = "active";
-    }
-    return {
-      key: s.key,
-      label: s.label,
-      status,
-      message: state.currentStage === s.key ? state.stageMessage : undefined,
-    };
-  });
+function formatRA(ra: number): string {
+  const hours = ra / 15;
+  const h = Math.floor(hours);
+  const m = Math.floor((hours - h) * 60);
+  const s = ((hours - h) * 60 - m) * 60;
+  return `${h}h ${m}m ${s.toFixed(2)}s`;
+}
+function formatDec(dec: number): string {
+  const sign = dec >= 0 ? "+" : "-";
+  const a = Math.abs(dec);
+  const d = Math.floor(a);
+  const m = Math.floor((a - d) * 60);
+  const s = ((a - d) * 60 - m) * 60;
+  return `${sign}${d}° ${m}' ${s.toFixed(1)}"`;
 }
 
-const TIER_LABELS: Record<number, { label: string; class: string }> = {
-  1: { label: "Full Analysis", class: "text-aurora-400 bg-aurora-500/10 border-aurora-500/20" },
-  2: { label: "Partial Analysis", class: "text-stellar-400 bg-stellar-500/10 border-stellar-500/20" },
-  3: { label: "VLM Only", class: "text-white/40 bg-white/[0.04] border-white/[0.06]" },
-};
-
 export function AnalysisPanel({ state, onClose, onRetry }: AnalysisPanelProps) {
-  const stages = buildStages(state);
   const isRunning = state.status === "running";
-  const hasReference = !!state.referenceImage;
-  const hasDiff = !!state.diffImage;
-  const tierInfo = TIER_LABELS[state.tier] || TIER_LABELS[3];
 
   return (
     <div className="flex flex-col lg:flex-row h-full gap-4 p-4 sm:p-6 overflow-y-auto">
-      {/* ── Left column: Images + progress ───────────────────────── */}
+      {/* LEFT: Image + Historical Comparison */}
       <div className="lg:w-1/2 shrink-0 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {isRunning && <Loader2 className="w-4 h-4 text-nebula-400 animate-spin" />}
             <h2 className="font-display text-lg font-semibold text-white/90">
-              {isRunning ? "Analyzing..." : "Analysis Results"}
+              {isRunning ? "Analyzing..." : "Discovery Analysis"}
             </h2>
-            {state.status === "done" && (
-              <span className={clsx("px-2 py-0.5 rounded-lg text-[10px] font-medium border", tierInfo.class)}>
-                {tierInfo.label}
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-2">
             {state.status === "error" && (
-              <button onClick={onRetry} className="flex items-center gap-1.5 text-xs text-nebula-400 hover:text-nebula-300 transition-colors px-3 py-1.5 rounded-lg bg-nebula-600/10 border border-nebula-500/20">
+              <button
+                onClick={onRetry}
+                className="flex items-center gap-1.5 text-xs text-nebula-400 hover:text-nebula-300 px-3 py-1.5 rounded-lg bg-nebula-600/10 border border-nebula-500/20"
+              >
                 <RotateCcw className="w-3 h-3" /> Retry
               </button>
             )}
-            <button onClick={onClose} className="w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.08] transition-all">
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.08]"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Triplet or single image viewer */}
-        {state.imagePreview && (hasReference || hasDiff) ? (
-          <TripletViewer
-            newImageSrc={state.imagePreview}
-            referenceImageBase64={state.referenceImage?.base64 || null}
-            diffImageBase64={state.diffImage?.base64 || null}
-            referenceSurvey={state.referenceImage?.survey}
-          />
-        ) : state.imagePreview ? (
-          <ImageViewer src={state.imagePreview} annotations={state.annotations} />
-        ) : null}
+        {/* User's image */}
+        {state.imagePreview && (
+          <div>
+            <p className="text-[10px] font-mono text-white/30 uppercase tracking-wider mb-1.5">Your Observation</p>
+            <img
+              src={state.imagePreview}
+              alt="Your observation"
+              className="w-full rounded-xl border border-white/[0.08] object-contain bg-black"
+            />
+          </div>
+        )}
+
+        {/* Historical comparison */}
+        {state.historicalImage && (
+          <div>
+            <p className="text-[10px] font-mono text-white/30 uppercase tracking-wider mb-1.5">Historical Archive (SkyView)</p>
+            <img
+              src={state.historicalImage}
+              alt="Historical archive"
+              className="w-full rounded-xl border border-white/[0.08] object-contain bg-black"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+        )}
 
         {/* Pipeline progress */}
-        {isRunning && <PipelineProgress stages={stages} progress={state.progress} />}
+        {isRunning && (
+          <div className="glass p-3">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="flex-1 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-nebula-600 to-cosmic-500 transition-all duration-500"
+                  style={{ width: `${state.progress}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-mono text-white/30">{state.progress}%</span>
+            </div>
+            <p className="text-xs text-white/50">{state.stageMessage}</p>
+          </div>
+        )}
 
-        {/* Error */}
         {state.error && (
           <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4">
             <p className="text-sm text-red-400/80">{state.error}</p>
           </div>
         )}
-
-        {/* Multi-wavelength viewer */}
-        {state.archivalImages.length > 0 && (
-          <MultiWavelengthViewer images={state.archivalImages} />
-        )}
       </div>
 
-      {/* ── Right column: Result cards ───────────────────────────── */}
+      {/* RIGHT: Results */}
       <div className="lg:w-1/2 space-y-4 min-w-0">
-        {/* Discovery score — most prominent, shown first when available */}
-        {state.discoveryScore && <DiscoveryScoreCard data={state.discoveryScore} />}
-
-        {/* Image quality */}
-        {state.imageQuality && <ImageQualityCard data={state.imageQuality} />}
-
-        {/* Morphology */}
-        {state.morphology && <MorphologyCard data={state.morphology} />}
-
-        {/* Coordinates */}
-        {state.coordinates && <CoordinatesCard data={state.coordinates} />}
-
-        {/* Change detection */}
-        {state.changeDetection && <ChangeDetectionCard data={state.changeDetection} />}
-
-        {/* Catalog cross-reference */}
-        {(state.catalogMatches.length > 0 || (state.coordinates && state.status === "done")) && (
-          <CatalogCard matches={state.catalogMatches} />
+        {/* Identification */}
+        {state.classification && (
+          <div className="glass p-4 animate-slide-up">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-cosmic-400" />
+              <span className="text-[10px] font-mono text-white/30 uppercase tracking-wider">Identification</span>
+            </div>
+            <h3 className="font-display text-xl font-semibold text-white mb-2">{state.classification}</h3>
+            <p className="text-sm text-white/60 leading-relaxed">{state.description}</p>
+          </div>
         )}
 
-        {/* AstroSage synthesis */}
-        {state.synthesis && <SynthesisCard data={state.synthesis} />}
+        {/* Coordinates */}
+        {state.coordinates && (
+          <div className="glass p-4 animate-slide-up">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Crosshair className="w-4 h-4 text-aurora-400" />
+                <span className="text-[10px] font-mono text-white/30 uppercase tracking-wider">Sky Coordinates</span>
+              </div>
+              <a
+                href={`https://aladin.cds.unistra.fr/AladinLite/?target=${state.coordinates.ra}+${state.coordinates.dec}&fov=0.15`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[10px] text-nebula-400 hover:text-nebula-300"
+              >
+                Aladin <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass-subtle p-2.5 rounded-lg">
+                <p className="text-[10px] text-white/30 mb-1">Right Ascension</p>
+                <p className="text-xs text-white/80 font-mono">{formatRA(state.coordinates.ra)}</p>
+                <p className="text-[10px] text-white/30 font-mono">{state.coordinates.ra.toFixed(4)}°</p>
+              </div>
+              <div className="glass-subtle p-2.5 rounded-lg">
+                <p className="text-[10px] text-white/30 mb-1">Declination</p>
+                <p className="text-xs text-white/80 font-mono">{formatDec(state.coordinates.dec)}</p>
+                <p className="text-[10px] text-white/30 font-mono">{state.coordinates.dec.toFixed(4)}°</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {state.astrometryError && (
+          <div className="rounded-xl bg-stellar-500/10 border border-stellar-500/20 p-3">
+            <p className="text-xs text-stellar-300/80">
+              <strong>Coordinate solving unavailable:</strong> {state.astrometryError}
+            </p>
+            <p className="text-[11px] text-white/30 mt-1">
+              This usually means the image does not contain enough background stars for Astrometry.net to plate-solve.
+              The identification above is still valid.
+            </p>
+          </div>
+        )}
+
+        {/* Discovery / anomaly result */}
+        {state.discovery && state.coordinates && (
+          <div className={clsx(
+            "rounded-xl p-4 border animate-slide-up",
+            state.isAnomaly
+              ? "bg-aurora-500/10 border-aurora-500/30"
+              : "bg-white/[0.03] border-white/[0.08]"
+          )}>
+            <div className="flex items-start gap-3">
+              {state.isAnomaly ? (
+                <AlertTriangle className="w-5 h-5 text-aurora-400 shrink-0 mt-0.5" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-white/40 shrink-0 mt-0.5" />
+              )}
+              <div>
+                <h3 className={clsx(
+                  "font-display text-sm font-semibold mb-1",
+                  state.isAnomaly ? "text-aurora-300" : "text-white/60"
+                )}>
+                  {state.isAnomaly ? "Possible Discovery" : "Region Stable"}
+                </h3>
+                <p className="text-xs text-white/60 leading-relaxed">{state.discovery}</p>
+                {state.diffCount !== null && (
+                  <p className="text-[11px] text-white/30 font-mono mt-2">
+                    Pixel variance count: {state.diffCount}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VLM Visual comparison */}
+        {state.visualComparison && (
+          <div className="glass p-4 animate-slide-up">
+            <p className="text-[10px] font-mono text-white/30 uppercase tracking-wider mb-2">
+              Visual Comparison Analysis
+            </p>
+            <p className="text-xs text-white/60 leading-relaxed">{state.visualComparison}</p>
+          </div>
+        )}
       </div>
     </div>
   );

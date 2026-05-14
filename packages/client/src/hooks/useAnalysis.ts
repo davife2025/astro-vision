@@ -1,6 +1,15 @@
 import { useState, useCallback, useRef } from "react";
 import { runFullAnalysis } from "@/services/api";
 
+export interface Coordinates {
+  ra: number;
+  dec: number;
+  fieldWidth?: number;
+  fieldHeight?: number;
+  orientation?: number;
+  pixscale?: number;
+}
+
 export interface AnalysisState {
   id: string | null;
   status: "idle" | "running" | "done" | "error";
@@ -10,22 +19,18 @@ export interface AnalysisState {
   imagePreview: string | null;
   imageFile: File | null;
 
-  // Results
-  imageQuality: any | null;
-  morphology: any | null;
-  annotations: any[];
-  coordinates: any | null;
-  catalogMatches: any[];
-  archivalImages: any[];
-  referenceImage: { base64: string; survey: string; wavelength: string } | null;
-  diffImage: { base64: string } | null;
-  changeDetection: any | null;
-  visualComparison: any | null;
-  synthesis: any | null;
-  discoveryScore: any | null;
-  tier: 1 | 2 | 3;
+  // Results — simple and focused
+  description: string | null;
+  classification: string | null;
+  coordinates: Coordinates | null;
+  historicalImage: string | null;
+  diffCount: number | null;
+  isAnomaly: boolean;
+  visualComparison: string | null;
+  discovery: string | null;
 
   error: string | null;
+  astrometryError: string | null;
 }
 
 const INITIAL_STATE: AnalysisState = {
@@ -36,20 +41,16 @@ const INITIAL_STATE: AnalysisState = {
   stageMessage: "",
   imagePreview: null,
   imageFile: null,
-  imageQuality: null,
-  morphology: null,
-  annotations: [],
+  description: null,
+  classification: null,
   coordinates: null,
-  catalogMatches: [],
-  archivalImages: [],
-  referenceImage: null,
-  diffImage: null,
-  changeDetection: null,
+  historicalImage: null,
+  diffCount: null,
+  isAnomaly: false,
   visualComparison: null,
-  synthesis: null,
-  discoveryScore: null,
-  tier: 3,
+  discovery: null,
   error: null,
+  astrometryError: null,
 };
 
 export function useAnalysis() {
@@ -75,102 +76,82 @@ export function useAnalysis() {
     setState(INITIAL_STATE);
   }, []);
 
-  const runAnalysis = useCallback(
-    async (question?: string) => {
-      const file = stateRef.current.imageFile;
-      if (!file) return;
+  const runAnalysis = useCallback(async (question?: string) => {
+    const file = stateRef.current.imageFile;
+    if (!file) return;
 
-      setState((prev) => ({
-        ...prev,
-        status: "running",
-        progress: 0,
-        currentStage: "triage",
-        stageMessage: "Starting analysis...",
-        error: null,
-        // Reset results
-        imageQuality: null,
-        morphology: null,
-        annotations: [],
-        coordinates: null,
-        catalogMatches: [],
-        archivalImages: [],
-        referenceImage: null,
-        diffImage: null,
-        changeDetection: null,
-        visualComparison: null,
-        synthesis: null,
-        discoveryScore: null,
-        tier: 3,
-      }));
+    setState((prev) => ({
+      ...prev,
+      status: "running",
+      progress: 0,
+      currentStage: "identify",
+      stageMessage: "Starting...",
+      error: null,
+      astrometryError: null,
+      description: null,
+      classification: null,
+      coordinates: null,
+      historicalImage: null,
+      diffCount: null,
+      isAnomaly: false,
+      visualComparison: null,
+      discovery: null,
+    }));
 
-      try {
-        await runFullAnalysis(file, question || "Analyze this celestial object.", {
-          onProgress: (_stage, data) => {
-            setState((prev) => ({
-              ...prev,
-              progress: data.progress || prev.progress,
-              currentStage: data.stage || prev.currentStage,
-              stageMessage: data.message || prev.stageMessage,
-            }));
-          },
-          onStageResult: (type, data) => {
-            // Progressive results — update as each stage completes
-            setState((prev) => {
-              const updates: Partial<AnalysisState> = {};
-              if (type === "imageQuality") updates.imageQuality = data;
-              if (type === "morphology") updates.morphology = data;
-              if (type === "annotations") updates.annotations = data;
-              if (type === "coordinates") updates.coordinates = data;
-              if (type === "catalogMatches") updates.catalogMatches = data;
-              if (type === "archivalImages") updates.archivalImages = data;
-              if (type === "referenceImage") updates.referenceImage = data;
-              if (type === "diffImage") updates.diffImage = data;
-              if (type === "changeDetection") updates.changeDetection = data;
-              if (type === "visualComparison") updates.visualComparison = data;
-              if (type === "synthesis") updates.synthesis = data;
-              if (type === "discoveryScore") updates.discoveryScore = data;
-              return { ...prev, ...updates };
-            });
-          },
-          onResult: (data) => {
-            setState((prev) => ({
-              ...prev,
-              status: "done",
-              id: data.id,
-              progress: 100,
-              currentStage: "complete",
-              stageMessage: "Analysis complete",
-              tier: data.tier || prev.tier,
-              imageQuality: data.imageQuality || prev.imageQuality,
-              morphology: data.morphology || prev.morphology,
-              annotations: data.annotations || prev.annotations,
-              coordinates: data.coordinates || prev.coordinates,
-              catalogMatches: data.catalogMatches || prev.catalogMatches,
-              archivalImages: data.archivalImages || prev.archivalImages,
-              changeDetection: data.changeDetection || prev.changeDetection,
-              visualComparison: data.visualComparison || prev.visualComparison,
-              synthesis: data.synthesis || prev.synthesis,
-              discoveryScore: data.discoveryScore || prev.discoveryScore,
-            }));
-          },
-          onError: (message) => {
-            setState((prev) => ({
-              ...prev,
-              status: "error",
-              error: message,
-            }));
-          },
-        });
-      } catch (err) {
-        setState((prev) => ({
-          ...prev,
-          status: "error",
-          error: (err as Error).message,
-        }));
-      }
-    },
-    []
-  );
+    try {
+      await runFullAnalysis(file, question || "Analyze this celestial object.", {
+        onProgress: (_stage, data) => {
+          setState((prev) => ({
+            ...prev,
+            progress: data.progress ?? prev.progress,
+            currentStage: data.stage ?? prev.currentStage,
+            stageMessage: data.message ?? prev.stageMessage,
+          }));
+        },
+        onStageResult: (type, data) => {
+          setState((prev) => {
+            const u: Partial<AnalysisState> = {};
+            if (type === "identification") {
+              u.description = data.description;
+              u.classification = data.classification;
+            }
+            if (type === "coordinates") u.coordinates = data;
+            if (type === "historicalImage") u.historicalImage = data.url;
+            if (type === "comparison") {
+              u.diffCount = data.diffCount;
+              u.isAnomaly = data.isAnomaly;
+            }
+            if (type === "visualComparison") u.visualComparison = data.text;
+            if (type === "astrometryError") u.astrometryError = data.message;
+            return { ...prev, ...u };
+          });
+        },
+        onResult: (data) => {
+          setState((prev) => ({
+            ...prev,
+            status: "done",
+            id: data.id,
+            progress: 100,
+            currentStage: "complete",
+            stageMessage: "Analysis complete",
+            description: data.description ?? prev.description,
+            classification: data.classification ?? prev.classification,
+            coordinates: data.coordinates ?? prev.coordinates,
+            historicalImage: data.historicalImage ?? prev.historicalImage,
+            diffCount: data.diffCount ?? prev.diffCount,
+            isAnomaly: data.isAnomaly ?? prev.isAnomaly,
+            visualComparison: data.visualComparison ?? prev.visualComparison,
+            discovery: data.discovery ?? prev.discovery,
+          }));
+        },
+        onError: (message) => {
+          setState((prev) => ({ ...prev, status: "error", error: message }));
+        },
+      });
+    } catch (err) {
+      setState((prev) => ({ ...prev, status: "error", error: (err as Error).message }));
+    }
+  }, []);
 
   return { state, setImageFile, clearImage, runAnalysis };
 }
