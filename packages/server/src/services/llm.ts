@@ -1,12 +1,11 @@
 import { config } from "../config";
-import { llmPrompts, type AstroSageSynthesis } from "@astrovision/pipeline";
 
 const HF_URL = "https://router.huggingface.co/featherless-ai/v1/completions";
 
 /**
  * Call AstroSage LLM with a prompt
  */
-async function callLLM(prompt: string, maxTokens = 800): Promise<string> {
+async function callLLM(prompt: string, maxTokens = 700): Promise<string> {
   const response = await fetch(HF_URL, {
     method: "POST",
     headers: {
@@ -17,7 +16,7 @@ async function callLLM(prompt: string, maxTokens = 800): Promise<string> {
       model: config.models.llm,
       prompt,
       max_tokens: maxTokens,
-      temperature: 0.5,
+      temperature: 0.6,
       top_p: 0.9,
       stop: ["User:", "\nUser", "\n\n\n"],
     }),
@@ -28,7 +27,7 @@ async function callLLM(prompt: string, maxTokens = 800): Promise<string> {
     throw new Error(`AstroSage API error (${response.status}): ${errText}`);
   }
 
-  const data = (await response.json()) as any;
+  const data: any = await response.json();
   return (
     data.choices?.[0]?.text?.trim() ||
     data.choices?.[0]?.message?.content?.trim() ||
@@ -36,98 +35,69 @@ async function callLLM(prompt: string, maxTokens = 800): Promise<string> {
   );
 }
 
-/**
- * Run AstroSage synthesis combining all pipeline outputs
- */
-export async function synthesizeResults(params: {
-  morphologyJson: string;
+interface AnalysisInputs {
+  classification: string;
+  description: string;
   ra: number | null;
   dec: number | null;
-  simbadResults: string;
-  nedResults: string;
-  changeScore: number | null;
-  snr: number | null;
-  isSignificant: boolean | null;
-  visualComparisonJson: string;
-  userQuestion: string;
-}): Promise<AstroSageSynthesis> {
-  const prompt = llmPrompts.SYNTHESIS_PROMPT
-    .replace("{morphologyJson}", params.morphologyJson)
-    .replace("{ra}", params.ra?.toFixed(6) || "unknown")
-    .replace("{dec}", params.dec?.toFixed(6) || "unknown")
-    .replace("{simbadResults}", params.simbadResults || "none found")
-    .replace("{nedResults}", params.nedResults || "none found")
-    .replace("{changeScore}", params.changeScore?.toString() || "N/A")
-    .replace("{snr}", params.snr?.toFixed(2) || "N/A")
-    .replace("{isSignificant}", params.isSignificant?.toString() || "N/A")
-    .replace("{visualComparisonJson}", params.visualComparisonJson || "not performed")
-    .replace("{userQuestion}", params.userQuestion);
-
-  const raw = await callLLM(prompt, 1000);
-
-  // Try to parse structured JSON
-  try {
-    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    return JSON.parse(cleaned) as AstroSageSynthesis;
-  } catch {
-    // Fallback: extract what we can from text
-    return {
-      summary: raw.slice(0, 500),
-      classification: "See morphology analysis",
-      hypotheses: extractListItems(raw, "hypothes"),
-      followUpRecommendations: extractListItems(raw, "follow"),
-      relevantPapers: extractListItems(raw, "paper"),
-      discoveryPotential: "low",
-    };
-  }
+  diffCount: number | null;
+  isAnomaly: boolean;
+  visualComparison: string | null;
 }
 
 /**
- * Generate a narrative report
+ * AstroSage produces the full explanatory analysis.
+ * Takes everything the pipeline gathered and writes a proper scientific explanation.
  */
-export async function generateReportNarrative(params: {
-  ra: number;
-  dec: number;
-  classification: string;
-  confidence: number;
-  discoveryScore: number;
-  catalogStatus: string;
-  changeDescription: string;
-  notableFeatures: string;
-}): Promise<string> {
-  const prompt = llmPrompts.REPORT_NARRATIVE_PROMPT
-    .replace("{ra}", params.ra.toFixed(6))
-    .replace("{dec}", params.dec.toFixed(6))
-    .replace("{classification}", params.classification)
-    .replace("{confidence}", params.confidence.toFixed(2))
-    .replace("{discoveryScore}", params.discoveryScore.toString())
-    .replace("{catalogStatus}", params.catalogStatus)
-    .replace("{changeDescription}", params.changeDescription)
-    .replace("{notableFeatures}", params.notableFeatures);
+export async function explainObservation(inputs: AnalysisInputs): Promise<string> {
+  const { classification, description, ra, dec, diffCount, isAnomaly, visualComparison } = inputs;
 
-  return callLLM(prompt, 400);
+  const coordLine = ra != null && dec != null
+    ? `The object's sky coordinates have been resolved to RA ${ra.toFixed(4)}°, Dec ${dec.toFixed(4)}° (J2000).`
+    : `The object's sky coordinates could not be resolved (the image likely lacks enough background stars for plate-solving).`;
+
+  const comparisonLine = diffCount != null
+    ? isAnomaly
+      ? `A pixel-level comparison with a historical archival image of the same region detected ${diffCount} significant variances, which exceeds the anomaly threshold. This may indicate a real observable change such as a transient event, variable object, or other astrophysical change.`
+      : `A pixel-level comparison with a historical archival image of the same region detected ${diffCount} variances, below the anomaly threshold, indicating the region appears stable over time.`
+    : `No historical comparison was performed because coordinates were unavailable.`;
+
+  const visualLine = visualComparison
+    ? `A visual comparison between the new and archival images noted: ${visualComparison}`
+    : "";
+
+  const prompt = `You are AstroSage, an expert astrophysics research assistant. A researcher has uploaded an astronomical image to the AstroVision platform and the analysis pipeline has gathered the following information:
+
+VISUAL IDENTIFICATION: The image appears to show a ${classification}. ${description}
+
+COORDINATES: ${coordLine}
+
+TEMPORAL COMPARISON: ${comparisonLine}
+
+${visualLine}
+
+Based on all of the above, write a clear, explanatory scientific analysis for the researcher. Your response should:
+1. Explain what this type of object is and its key physical characteristics.
+2. Interpret the specific features mentioned in the visual identification.
+3. Explain what the temporal comparison result means scientifically.
+4. If an anomaly was detected, explain what kind of discovery this could represent and what follow-up observations would confirm it. If the region is stable, explain what that tells us.
+5. Be precise and educational, suitable for an advanced undergraduate or researcher.
+
+Write 2-3 well-structured paragraphs. Do not use bullet points or headers.
+
+AstroSage:`;
+
+  const result = await callLLM(prompt, 700);
+  return result || "AstroSage analysis could not be generated. Please try again.";
 }
 
 /**
- * Helper: extract list items from unstructured text
+ * Plain chat with AstroSage (for the chat tab)
  */
-function extractListItems(text: string, keyword: string): string[] {
-  const lines = text.split("\n");
-  const items: string[] = [];
-  let inSection = false;
-
-  for (const line of lines) {
-    if (line.toLowerCase().includes(keyword)) {
-      inSection = true;
-      continue;
-    }
-    if (inSection && (line.startsWith("-") || line.startsWith("•") || line.match(/^\d+\./))) {
-      items.push(line.replace(/^[-•\d.]+\s*/, "").trim());
-    }
-    if (inSection && line.trim() === "" && items.length > 0) {
-      break;
-    }
-  }
-
-  return items.length > 0 ? items : ["See full analysis above"];
+export async function chatWithAstroSage(message: string, history: { role: string; content: string }[] = []): Promise<string> {
+  const ctx = history.slice(-6).map(m => `${m.role === "user" ? "User" : "AstroSage"}: ${m.content}`).join("\n\n");
+  const prompt = ctx
+    ? `You are AstroSage, an expert astrophysics research assistant.\n\n${ctx}\n\nUser: ${message}\n\nAstroSage:`
+    : `You are AstroSage, an expert astrophysics research assistant. Answer the following question with scientific precision.\n\nUser: ${message}\n\nAstroSage:`;
+  return callLLM(prompt, 600);
 }

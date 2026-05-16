@@ -5,6 +5,7 @@ import { AstrometryService } from "@astrovision/pipeline";
 import { config } from "../config";
 import { identifyAndClassify, compareImagesVLM } from "../services/vlm";
 import { compareImages, fetchImageBuffer } from "../services/imageComparison";
+import { explainObservation } from "../services/llm";
 import { getSupabase } from "../config/supabase";
 
 const router = Router();
@@ -126,6 +127,27 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
       });
     }
 
+    // ── Stage 6: AstroSage explanatory analysis ──────────────────────
+    send("progress", { stage: "astrosage", message: "AstroSage is writing the analysis...", progress: 92 });
+
+    let astrosageAnalysis = "";
+    try {
+      astrosageAnalysis = await explainObservation({
+        classification,
+        description,
+        ra: coordinates?.ra ?? null,
+        dec: coordinates?.dec ?? null,
+        diffCount,
+        isAnomaly,
+        visualComparison,
+      });
+      send("stage_result", { type: "astrosageAnalysis", data: { text: astrosageAnalysis } });
+    } catch (llmErr) {
+      console.error("AstroSage analysis failed:", llmErr);
+      astrosageAnalysis = "AstroSage analysis could not be generated, but the pipeline results above are complete.";
+      send("stage_result", { type: "astrosageAnalysis", data: { text: astrosageAnalysis } });
+    }
+
     // ── Done ─────────────────────────────────────────────────────────
     send("progress", { stage: "complete", message: "Analysis complete", progress: 100 });
 
@@ -139,6 +161,7 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
       diffCount,
       isAnomaly,
       visualComparison,
+      astrosageAnalysis,
       discovery: isAnomaly
         ? `ANOMALY DETECTED: ${diffCount} pixel variances between observation and archive. This region may show real astrophysical changes worth investigating.`
         : diffCount !== null
@@ -179,7 +202,7 @@ router.post("/full", upload.single("image"), async (req: Request, res: Response)
         pixscale: coordinates?.pixscale ?? null,
         morphology: { classification, description },
         change_detection: diffCount !== null ? { diffCount, isAnomaly, visualComparison } : null,
-        synthesis: { summary: finalResult.discovery },
+        synthesis: { summary: finalResult.discovery, analysis: astrosageAnalysis },
         discovery_score: isAnomaly ? 75 : 10,
         discovery_tier: isAnomaly ? "candidate" : "routine",
         user_question: req.body.question || null,

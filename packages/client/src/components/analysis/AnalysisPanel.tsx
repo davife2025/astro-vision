@@ -119,6 +119,23 @@ export function AnalysisPanel({ state, onClose, onRetry }: AnalysisPanelProps) {
           </div>
         )}
 
+        {/* AstroSage explanatory analysis — the main scientific writeup */}
+        {state.astrosageAnalysis && (
+          <div className="glass p-4 animate-slide-up glow-purple">
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-5 h-5 rounded-md bg-gradient-to-br from-cosmic-500/40 to-nebula-500/40 flex items-center justify-center">
+                <Sparkles className="w-3 h-3 text-cosmic-200" />
+              </div>
+              <span className="text-[10px] font-mono text-cosmic-300/70 uppercase tracking-wider">AstroSage Analysis</span>
+            </div>
+            <div className="text-sm text-white/70 leading-relaxed space-y-2.5">
+              {state.astrosageAnalysis.split("\n").filter(Boolean).map((para, i) => (
+                <p key={i}>{para}</p>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Coordinates */}
         {state.coordinates && (
           <div className="glass p-4 animate-slide-up">

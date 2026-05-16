@@ -27,6 +27,7 @@ export interface AnalysisState {
   diffCount: number | null;
   isAnomaly: boolean;
   visualComparison: string | null;
+  astrosageAnalysis: string | null;
   discovery: string | null;
 
   error: string | null;
@@ -48,6 +49,7 @@ const INITIAL_STATE: AnalysisState = {
   diffCount: null,
   isAnomaly: false,
   visualComparison: null,
+  astrosageAnalysis: null,
   discovery: null,
   error: null,
   astrometryError: null,
@@ -95,6 +97,7 @@ export function useAnalysis() {
       diffCount: null,
       isAnomaly: false,
       visualComparison: null,
+      astrosageAnalysis: null,
       discovery: null,
     }));
 
@@ -122,6 +125,7 @@ export function useAnalysis() {
               u.isAnomaly = data.isAnomaly;
             }
             if (type === "visualComparison") u.visualComparison = data.text;
+            if (type === "astrosageAnalysis") u.astrosageAnalysis = data.text;
             if (type === "astrometryError") u.astrometryError = data.message;
             return { ...prev, ...u };
           });
@@ -141,6 +145,7 @@ export function useAnalysis() {
             diffCount: data.diffCount ?? prev.diffCount,
             isAnomaly: data.isAnomaly ?? prev.isAnomaly,
             visualComparison: data.visualComparison ?? prev.visualComparison,
+            astrosageAnalysis: data.astrosageAnalysis ?? prev.astrosageAnalysis,
             discovery: data.discovery ?? prev.discovery,
           }));
         },

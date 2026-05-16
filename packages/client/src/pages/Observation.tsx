@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { Trash2, ArrowLeft } from "lucide-react";
+import { Trash2, Loader2 } from "lucide-react";
 import { useChat } from "@/hooks/useChat";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { ChatMessage } from "@/components/chat/ChatMessage";
@@ -13,23 +13,49 @@ export default function ObservationPage() {
   const { messages, isLoading, sendMessage, clearMessages, retryLastMessage } = useChat();
   const analysis = useAnalysis();
   const [mode, setMode] = useState<Mode>("chat");
+  const [loadingGalaxy, setLoadingGalaxy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll chat
   useEffect(() => {
     if (mode === "chat" && scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     }
   }, [messages, mode]);
+
+  // ── Pick up a galaxy sent from the Explore tab ───────────────────────
+  useEffect(() => {
+    const stored = sessionStorage.getItem("investigate_galaxy");
+    if (!stored) return;
+
+    sessionStorage.removeItem("investigate_galaxy"); // consume it once
+
+    const galaxy = JSON.parse(stored);
+    if (!galaxy?.imageUrl) return;
+
+    setLoadingGalaxy(true);
+    setMode("analysis");
+
+    // Fetch the galaxy image URL into a File object so the pipeline can use it
+    fetch(galaxy.imageUrl)
+      .then((res) => res.blob())
+      .then((blob) => {
+        const file = new File([blob], `${galaxy.id || "galaxy"}.jpg`, { type: blob.type || "image/jpeg" });
+        analysis.setImageFile(file);
+        setLoadingGalaxy(false);
+        setTimeout(() => analysis.runAnalysis(), 150);
+      })
+      .catch(() => {
+        setLoadingGalaxy(false);
+        setMode("chat");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleImageSelect = (file: File) => {
     analysis.setImageFile(file);
     setMode("analysis");
-    // Start analysis immediately
     setTimeout(() => analysis.runAnalysis(), 100);
   };
 
@@ -40,7 +66,17 @@ export default function ObservationPage() {
 
   const hasMessages = messages.length > 0;
 
-  // ── Analysis mode ──────────────────────────────────────────────────
+  // ── Loading galaxy from Explore ──────────────────────────────────────
+  if (mode === "analysis" && loadingGalaxy) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <Loader2 className="w-6 h-6 text-nebula-400 animate-spin" />
+        <p className="text-sm text-white/40">Loading galaxy for investigation...</p>
+      </div>
+    );
+  }
+
+  // ── Analysis mode ────────────────────────────────────────────────────
   if (mode === "analysis" && analysis.state.imagePreview) {
     return (
       <div className="flex flex-col h-full">
@@ -53,14 +89,12 @@ export default function ObservationPage() {
     );
   }
 
-  // ── Chat mode ──────────────────────────────────────────────────────
+  // ── Chat mode ────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
-      {/* Messages area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {hasMessages ? (
           <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-            {/* Clear button */}
             <div className="flex justify-center">
               <button
                 onClick={clearMessages}
@@ -70,8 +104,6 @@ export default function ObservationPage() {
                 Clear conversation
               </button>
             </div>
-
-            {/* Messages */}
             {messages.map((msg) => (
               <ChatMessage
                 key={msg.id}
@@ -90,7 +122,6 @@ export default function ObservationPage() {
         )}
       </div>
 
-      {/* Hidden file input for empty state upload button */}
       <input
         type="file"
         ref={fileInputRef}
@@ -103,7 +134,6 @@ export default function ObservationPage() {
         }}
       />
 
-      {/* Input */}
       <ChatInput
         onSend={sendMessage}
         isLoading={isLoading}
