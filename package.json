@@ -2,6 +2,7 @@
   "name": "astrovision",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.0",
   "description": "AstroVision — AI-Powered Multi-Modal Astrophysics Research Platform",
   "scripts": {
     "dev": "turbo run dev",
