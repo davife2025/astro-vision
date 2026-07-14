@@ -1,6 +1,12 @@
 import { config } from "../config";
 
-const HF_URL = "https://router.huggingface.co/featherless-ai/v1/completions";
+// NOTE: router.huggingface.co only exposes the OpenAI-compatible chat endpoint
+// at /v1/chat/completions (the provider is selected via a ":provider" suffix on
+// the model id, not via a "/featherless-ai/..." URL segment). Hitting a path
+// like "/featherless-ai/v1/completions" doesn't match any route on the router,
+// so the request falls through to huggingface.co's website and you get back its
+// generic HTML 503 page instead of a real API error.
+const HF_URL = "https://router.huggingface.co/v1/chat/completions";
 
 /**
  * Call AstroSage LLM with a prompt
@@ -13,8 +19,8 @@ async function callLLM(prompt: string, maxTokens = 700): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: config.models.llm,
-      prompt,
+      model: `${config.models.llm}:featherless-ai`,
+      messages: [{ role: "user", content: prompt }],
       max_tokens: maxTokens,
       temperature: 0.6,
       top_p: 0.9,
@@ -24,13 +30,13 @@ async function callLLM(prompt: string, maxTokens = 700): Promise<string> {
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
-    throw new Error(`AstroSage API error (${response.status}): ${errText}`);
+    throw new Error(`AstroSage API error (${response.status}): ${errText.slice(0, 300)}`);
   }
 
   const data: any = await response.json();
   return (
-    data.choices?.[0]?.text?.trim() ||
     data.choices?.[0]?.message?.content?.trim() ||
+    data.choices?.[0]?.text?.trim() ||
     ""
   );
 }
